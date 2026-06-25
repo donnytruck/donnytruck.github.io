@@ -1,0 +1,809 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>YOLOv11 Object Detector</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans:wght@400;500;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#1b1e20;--surface:#232629;--surface2:#2a2e32;--surface3:#31363b;
+  --border:#3d4247;--hi:#3daee9;--hi2:#1d99f3;
+  --text:#eff0f1;--dim:#9fa8b0;--muted:#6c7680;
+  --green:#27ae60;--red:#da4453;
+}
+html,body{height:100%;font-family:'Noto Sans',system-ui,sans-serif;background:var(--bg);color:var(--text);overflow:hidden}
+/* ── Layout ── */
+.root{display:flex;flex-direction:column;height:100vh}
+/* ── Titlebar ── */
+.titlebar{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:0 14px;height:48px;flex-shrink:0;
+  background:linear-gradient(180deg,#2d3239 0%,#1e2124 100%);
+  border-bottom:1px solid #111;box-shadow:0 2px 8px rgba(0,0,0,.5);gap:12px;
+}
+.titlebar-left{display:flex;align-items:center;gap:10px}
+.titlebar-right{display:flex;align-items:center;gap:10px}
+.app-icon{width:26px;height:26px;color:var(--hi);display:flex;align-items:center;justify-content:center}
+.app-icon svg{width:22px;height:22px}
+.app-title{font-size:14px;font-weight:600;letter-spacing:.01em}
+.fps-badge{
+  font-size:11px;font-weight:600;font-variant-numeric:tabular-nums;
+  color:var(--dim);background:rgba(0,0,0,.3);border:1px solid var(--border);
+  border-radius:4px;padding:2px 8px;min-width:56px;text-align:center;
+}
+.status-chip{
+  display:flex;align-items:center;gap:6px;font-size:12px;font-weight:500;
+  padding:4px 10px;border-radius:4px;border:1px solid var(--border);
+  background:rgba(0,0,0,.3);white-space:nowrap;
+}
+.dot{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.dot-green{background:var(--green);box-shadow:0 0 6px var(--green)}
+.dot-red{background:var(--red);box-shadow:0 0 6px var(--red)}
+.dot-orange{background:#f67400;box-shadow:0 0 6px #f67400}
+.spin{width:12px;height:12px;border:2px solid rgba(61,174,233,.3);border-top-color:var(--hi);border-radius:50%;animation:spin .8s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* ── Body ── */
+.body{display:flex;flex:1;overflow:hidden}
+/* ── Video ── */
+.video-panel{flex:1;display:flex;flex-direction:column;min-width:0;background:#0d0f10;position:relative}
+.video-wrap{flex:1;position:relative;overflow:hidden}
+video{width:100%;height:100%;object-fit:contain;display:block}
+canvas.overlay{position:absolute;inset:0;width:100%;height:100%;pointer-events:none}
+/* ── Loading overlay ── */
+.loading-overlay{
+  position:absolute;inset:0;background:rgba(13,15,16,.85);
+  display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px);
+}
+.loading-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:36px 44px;display:flex;flex-direction:column;align-items:center;gap:14px;
+  box-shadow:0 8px 32px rgba(0,0,0,.6);min-width:300px;max-width:380px;width:90%;
+}
+.loading-spinner{width:48px;height:48px;border:4px solid rgba(61,174,233,.2);border-top-color:var(--hi);border-radius:50%;animation:spin 1s linear infinite}
+.loading-title{font-size:15px;font-weight:600}
+.loading-sub{font-size:12px;color:var(--dim);text-align:center;line-height:1.5}
+.progress-bar{width:100%;height:6px;background:rgba(255,255,255,.1);border-radius:3px;overflow:hidden}
+.progress-fill{height:100%;background:linear-gradient(90deg,#1d99f3,#3daee9);border-radius:3px;transition:width .2s ease;width:0%}
+.loading-pct{font-size:13px;font-weight:700;color:var(--hi)}
+/* File picker card */
+.picker-card{
+  background:var(--surface);border:1px solid var(--border);border-radius:10px;
+  padding:32px 40px;display:flex;flex-direction:column;align-items:center;gap:16px;
+  box-shadow:0 8px 32px rgba(0,0,0,.6);min-width:300px;max-width:420px;width:90%;
+}
+.picker-title{font-size:15px;font-weight:700}
+.picker-sub{font-size:12px;color:var(--dim);text-align:center;line-height:1.6}
+.picker-steps{
+  width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:6px;
+  padding:12px 16px;font-size:11.5px;line-height:1.8;color:var(--dim);
+}
+.picker-steps code{color:var(--hi);font-family:monospace;font-size:11px}
+.btn-pick{
+  background:linear-gradient(180deg,#3daee9,#2795c8);color:#fff;
+  border:none;border-radius:6px;padding:10px 24px;font-size:13px;font-weight:600;
+  cursor:pointer;font-family:inherit;transition:opacity .15s;
+}
+.btn-pick:hover{opacity:.85}
+.btn-pick:active{opacity:.7}
+input[type=file]{display:none}
+.divider{width:100%;border:none;border-top:1px solid var(--border);margin:4px 0}
+.btn-download{
+  background:transparent;color:var(--hi);border:1px solid var(--hi);
+  border-radius:6px;padding:8px 20px;font-size:12px;font-weight:600;
+  cursor:pointer;font-family:inherit;transition:background .15s;
+}
+.btn-download:hover{background:rgba(61,174,233,.12)}
+/* ── Sidebar ── */
+.sidebar{
+  width:260px;flex-shrink:0;display:flex;flex-direction:column;
+  background:var(--surface);border-left:1px solid #111;overflow-y:auto;gap:1px;
+}
+.sidebar::-webkit-scrollbar{width:5px}
+.sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+/* ── Panel ── */
+.panel{background:var(--surface);border-bottom:1px solid rgba(0,0,0,.3)}
+.panel-head{
+  display:flex;align-items:center;gap:6px;padding:8px 12px;
+  font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--dim);background:#1a1d1f;border-bottom:1px solid rgba(0,0,0,.25);
+  user-select:none;
+}
+.panel-icon{width:13px;height:13px;flex-shrink:0}
+.badge{
+  margin-left:auto;background:var(--hi);color:#0d0f10;
+  font-size:10px;font-weight:700;padding:1px 6px;border-radius:10px;min-width:18px;text-align:center;
+}
+.panel-body{padding:10px 12px}
+/* ── Select ── */
+select{
+  width:100%;appearance:none;background:var(--surface2);border:1px solid var(--border);
+  border-radius:4px;color:var(--text);font-size:12px;font-family:inherit;
+  padding:6px 28px 6px 9px;cursor:pointer;outline:none;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%239fa8b0' stroke-width='2'%3E%3Cpolyline points='6 9 12 15 18 9'/%3E%3C/svg%3E");
+  background-repeat:no-repeat;background-position:right 7px center;background-size:14px;
+}
+select:focus{border-color:var(--hi);box-shadow:0 0 0 2px rgba(61,174,233,.2)}
+select option{background:var(--surface2);color:var(--text)}
+/* ── Detections ── */
+.det-list{padding:6px 8px;display:flex;flex-direction:column;gap:4px;max-height:340px;overflow-y:auto}
+.det-list::-webkit-scrollbar{width:4px}
+.det-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:2px}
+.empty{font-size:12px;color:var(--muted);text-align:center;padding:16px 0}
+.det-item{
+  background:var(--surface2);border:1px solid var(--border);border-radius:4px;
+  padding:6px 8px;display:grid;grid-template-columns:8px 1fr;
+  grid-template-rows:auto auto;column-gap:8px;row-gap:4px;
+}
+.det-color{grid-row:1/3;width:4px;border-radius:2px;align-self:stretch}
+.det-info{display:flex;align-items:baseline;justify-content:space-between}
+.det-label{font-size:12px;font-weight:600;text-transform:capitalize}
+.det-conf{font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;color:var(--hi)}
+.conf-wrap{height:3px;background:rgba(255,255,255,.08);border-radius:2px;overflow:hidden}
+.conf-bar{height:100%;border-radius:2px;transition:width .15s ease}
+/* ── Info panel ── */
+.info-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;align-items:center}
+.info-key{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+.info-val{font-size:11px;font-weight:600;color:var(--dim)}
+/* ── Statusbar ── */
+.statusbar{
+  display:flex;align-items:center;justify-content:space-between;padding:0 14px;height:26px;
+  background:linear-gradient(180deg,#1a1d1f 0%,#161819 100%);
+  border-top:1px solid #111;font-size:11px;color:var(--muted);flex-shrink:0;
+}
+</style>
+</head>
+<body>
+<div class="root">
+  <!-- Titlebar -->
+  <header class="titlebar">
+    <div class="titlebar-left">
+      <div class="app-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+          <circle cx="12" cy="12" r="3"/>
+          <path d="M1 12h4m14 0h4M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9 2.83 2.83M4.22 19.78l2.83-2.83m9.9-9.9 2.83-2.83"/>
+        </svg>
+      </div>
+      <span class="app-title">YOLOv11 Object Detector</span>
+    </div>
+    <div class="titlebar-right">
+      <div class="fps-badge" id="fpsBadge">0 FPS</div>
+      <div class="status-chip" id="statusChip">
+        <span class="dot dot-orange"></span>
+        <span id="statusText">Initializing…</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Body -->
+  <div class="body">
+    <!-- Video area -->
+    <div class="video-panel">
+      <div class="video-wrap">
+        <video id="video" autoplay playsinline muted></video>
+        <canvas class="overlay" id="overlay"></canvas>
+
+        <!-- Loading overlay (shown while model loads) -->
+        <div class="loading-overlay" id="loadingOverlay">
+          <div class="loading-card" id="loadingCard">
+            <div class="loading-spinner"></div>
+            <p class="loading-title">Loading YOLOv11 Model</p>
+            <p class="loading-sub" id="loadingSub">Preparing…</p>
+            <div class="progress-bar"><div class="progress-fill" id="progressFill"></div></div>
+            <p class="loading-pct" id="loadingPct"></p>
+          </div>
+
+          <!-- File picker card (shown when model not found) -->
+          <div class="picker-card" id="pickerCard" style="display:none">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#3daee9" stroke-width="1.5">
+              <circle cx="12" cy="12" r="3"/><path d="M1 12h4m14 0h4M12 1v4m0 14v4M4.22 4.22l2.83 2.83m9.9 9.9 2.83 2.83M4.22 19.78l2.83-2.83m9.9-9.9 2.83-2.83"/>
+            </svg>
+            <p class="picker-title">YOLOv11 model required</p>
+            <p class="picker-sub">
+              The model will be downloaded once (~10 MB) and saved in your browser — no internet needed after that.
+            </p>
+            <button class="btn-pick" id="btnAutoDownload">⬇ Download model (10 MB)</button>
+            <p class="loading-sub" id="dlStatus" style="display:none"></p>
+            <div class="progress-bar" id="dlBar" style="display:none"><div class="progress-fill" id="dlFill"></div></div>
+            <hr class="divider"/>
+            <p class="loading-sub" style="color:var(--muted)">Already have the file?</p>
+            <button class="btn-download" id="btnPick">📂 Load yolo11n.onnx from disk</button>
+            <input type="file" id="fileInput" accept=".onnx"/>
+          </div>
+        </div>
+      </div>
+      <canvas id="offscreen" style="display:none"></canvas>
+    </div>
+
+    <!-- Sidebar -->
+    <aside class="sidebar">
+      <!-- Camera -->
+      <div class="panel">
+        <div class="panel-head">
+          <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/>
+          </svg>
+          Camera
+        </div>
+        <div class="panel-body">
+          <select id="camSelect"><option>No cameras found</option></select>
+        </div>
+      </div>
+
+      <!-- Detections -->
+      <div class="panel">
+        <div class="panel-head">
+          <svg class="panel-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18M3 9h18"/>
+          </svg>
+          Detections
+          <span class="badge" id="detCount">0</span>
+        </div>
+        <div class="det-list" id="detList">
+          <div class="empty">Waiting for model…</div>
+        </div>
+      </div>
+
+      <!-- Info -->
+      <div class="panel">
+        <div class="panel-head">Info</div>
+        <div class="panel-body">
+          <div class="info-grid">
+            <span class="info-key">Model</span><span class="info-val">YOLOv11n</span>
+            <span class="info-key">Input</span><span class="info-val">640×640</span>
+            <span class="info-key">Classes</span><span class="info-val">80 (COCO)</span>
+            <span class="info-key">Threshold</span><span class="info-val">25%</span>
+            <span class="info-key">Backend</span><span class="info-val">ONNX / WASM</span>
+            <span class="info-key">Cache</span><span class="info-val" id="cacheStatus">checking…</span>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </div>
+
+  <!-- Statusbar -->
+  <footer class="statusbar">
+    <span>YOLOv11 Object Detector — powered by ONNX Runtime Web</span>
+    <span id="detSummary">0 objects detected</span>
+  </footer>
+</div>
+
+<!-- ONNX Runtime Web from CDN -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/ort.min.js"></script>
+<script>
+'use strict';
+
+// ─── Config ────────────────────────────────────────────────────────────────
+const CONF_THR   = 0.25;
+const IOU_THR    = 0.45;
+const INPUT_SIZE = 640;
+const DB_NAME    = 'yolo11-model-cache';
+const DB_STORE   = 'models';
+const MODEL_KEY  = 'yolo11n.onnx';
+const DOWNLOAD_URLS = [
+  'https://raw.githubusercontent.com/donnytramptramples/yollo11onyx/main/models/yolov11n.onnx',
+];
+
+const COCO_CLASSES = [
+  'person','bicycle','car','motorcycle','airplane','bus','train','truck','boat',
+  'traffic light','fire hydrant','stop sign','parking meter','bench','bird','cat',
+  'dog','horse','sheep','cow','elephant','bear','zebra','giraffe','backpack',
+  'umbrella','handbag','tie','suitcase','frisbee','skis','snowboard','sports ball',
+  'kite','baseball bat','baseball glove','skateboard','surfboard','tennis racket',
+  'bottle','wine glass','cup','fork','knife','spoon','bowl','banana','apple',
+  'sandwich','orange','broccoli','carrot','hot dog','pizza','donut','cake','chair',
+  'couch','potted plant','bed','dining table','toilet','tv','laptop','mouse',
+  'remote','keyboard','cell phone','microwave','oven','toaster','sink',
+  'refrigerator','book','clock','vase','scissors','teddy bear','hair drier','toothbrush',
+];
+
+function classColor(id) {
+  return `hsl(${(id * 137.508) % 360},80%,58%)`;
+}
+
+// ─── DOM refs ──────────────────────────────────────────────────────────────
+const video          = document.getElementById('video');
+const overlay        = document.getElementById('overlay');
+const offscreen      = document.getElementById('offscreen');
+const loadingOverlay = document.getElementById('loadingOverlay');
+const loadingCard    = document.getElementById('loadingCard');
+const pickerCard     = document.getElementById('pickerCard');
+const loadingSub     = document.getElementById('loadingSub');
+const progressFill   = document.getElementById('progressFill');
+const loadingPct     = document.getElementById('loadingPct');
+const fpsBadge       = document.getElementById('fpsBadge');
+const statusChip     = document.getElementById('statusChip');
+const statusText     = document.getElementById('statusText');
+const camSelect      = document.getElementById('camSelect');
+const detCount       = document.getElementById('detCount');
+const detList        = document.getElementById('detList');
+const detSummary     = document.getElementById('detSummary');
+const cacheStatus    = document.getElementById('cacheStatus');
+const btnPick        = document.getElementById('btnPick');
+const fileInput      = document.getElementById('fileInput');
+const btnAutoDownload= document.getElementById('btnAutoDownload');
+const dlStatus       = document.getElementById('dlStatus');
+const dlBar          = document.getElementById('dlBar');
+const dlFill         = document.getElementById('dlFill');
+
+// ─── State ─────────────────────────────────────────────────────────────────
+let session   = null;
+let stream    = null;
+let running   = false;
+let rafId     = 0;
+let fpsFrames = 0;
+let fpsLast   = performance.now();
+
+// ─── Status helpers ────────────────────────────────────────────────────────
+function setStatus(state, text) {
+  statusText.textContent = text;
+  const dot = statusChip.querySelector('.dot');
+  dot.className = 'dot';
+  if (state === 'ready')   dot.classList.add('dot-green');
+  if (state === 'error')   dot.classList.add('dot-red');
+  if (state === 'loading') dot.classList.add('dot-orange');
+  const spin = statusChip.querySelector('.spin');
+  if (state === 'loading' && !spin) {
+    const s = document.createElement('span');
+    s.className = 'spin';
+    statusChip.insertBefore(s, statusChip.firstChild);
+    dot.style.display = 'none';
+  } else if (spin) {
+    spin.remove();
+    dot.style.display = '';
+  }
+}
+
+// ─── IndexedDB helpers ─────────────────────────────────────────────────────
+function openDB() {
+  return new Promise((res, rej) => {
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = e => e.target.result.createObjectStore(DB_STORE);
+    req.onsuccess = e => res(e.target.result);
+    req.onerror   = e => rej(e.target.error);
+  });
+}
+
+async function getCachedModel() {
+  try {
+    const db = await openDB();
+    return await new Promise((res, rej) => {
+      const tx  = db.transaction(DB_STORE, 'readonly');
+      const req = tx.objectStore(DB_STORE).get(MODEL_KEY);
+      req.onsuccess = e => res(e.target.result);
+      req.onerror   = e => rej(e.target.error);
+    });
+  } catch { return null; }
+}
+
+async function cacheModel(buffer) {
+  try {
+    const db = await openDB();
+    await new Promise((res, rej) => {
+      const tx  = db.transaction(DB_STORE, 'readwrite');
+      const req = tx.objectStore(DB_STORE).put(buffer, MODEL_KEY);
+      req.onsuccess = () => res();
+      req.onerror   = e => rej(e.target.error);
+    });
+  } catch(e) { console.warn('Cache write failed:', e); }
+}
+
+// ─── Model loading ─────────────────────────────────────────────────────────
+async function loadModelFromBuffer(buffer) {
+  ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+  ort.env.wasm.numThreads = 1; // works without SharedArrayBuffer
+  session = await ort.InferenceSession.create(buffer, {
+    executionProviders: ['wasm'],
+    graphOptimizationLevel: 'all',
+  });
+}
+
+async function tryLocalFetch() {
+  // Try loading yolo11n.onnx from same folder (works on local HTTP server)
+  try {
+    const resp = await fetch('./yolo11n.onnx');
+    if (!resp.ok) return null;
+    const total = Number(resp.headers.get('content-length') || 0);
+    const reader = resp.body.getReader();
+    const chunks = [];
+    let loaded = 0;
+    loadingSub.textContent = 'Loading model from local file…';
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+      loaded += value.length;
+      if (total) {
+        const pct = Math.round(loaded / total * 100);
+        progressFill.style.width = pct + '%';
+        loadingPct.textContent = pct + '%';
+      }
+    }
+    const buf = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
+    let off = 0;
+    for (const c of chunks) { buf.set(c, off); off += c.length; }
+    return buf.buffer;
+  } catch { return null; }
+}
+
+async function downloadModelWithProgress(onProgress) {
+  let lastErr;
+  for (const url of DOWNLOAD_URLS) {
+    try {
+      const resp = await fetch(url, { mode: 'cors' });
+      if (!resp.ok) throw new Error('HTTP ' + resp.status);
+      const total = Number(resp.headers.get('content-length') || 0);
+      const reader = resp.body.getReader();
+      const chunks = [];
+      let loaded = 0;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        loaded += value.length;
+        onProgress(loaded, total);
+      }
+      const buf = new Uint8Array(chunks.reduce((a, c) => a + c.length, 0));
+      let off = 0;
+      for (const c of chunks) { buf.set(c, off); off += c.length; }
+      return buf.buffer;
+    } catch(e) { lastErr = e; }
+  }
+  throw lastErr;
+}
+
+function showPicker() {
+  loadingCard.style.display = 'none';
+  pickerCard.style.display  = 'flex';
+}
+
+async function initModel() {
+  setStatus('loading', 'Loading model…');
+
+  // 1. Check IndexedDB cache
+  loadingSub.textContent = 'Checking cache…';
+  const cached = await getCachedModel();
+  if (cached) {
+    loadingSub.textContent = 'Loading from cache…';
+    progressFill.style.width = '100%';
+    loadingPct.textContent = '100%';
+    cacheStatus.textContent = 'IndexedDB ✓';
+    try {
+      await loadModelFromBuffer(cached);
+      loadingOverlay.style.display = 'none';
+      setStatus('ready', 'Model Ready');
+      startDetection();
+      return;
+    } catch(e) { console.warn('Cached model invalid, re-downloading', e); }
+  }
+
+  cacheStatus.textContent = 'not cached';
+
+  // 2. Try local fetch (same folder, works with local HTTP server)
+  loadingSub.textContent = 'Looking for local yolo11n.onnx…';
+  const localBuf = await tryLocalFetch();
+  if (localBuf) {
+    loadingSub.textContent = 'Loading…';
+    try {
+      await loadModelFromBuffer(localBuf);
+      await cacheModel(localBuf);
+      cacheStatus.textContent = 'IndexedDB ✓';
+      loadingOverlay.style.display = 'none';
+      setStatus('ready', 'Model Ready');
+      startDetection();
+      return;
+    } catch(e) { console.warn('Local model invalid', e); }
+  }
+
+  // 3. Show picker / download UI
+  setStatus('error', 'Model not found');
+  showPicker();
+}
+
+// File picker
+btnPick.addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async () => {
+  const file = fileInput.files[0];
+  if (!file) return;
+  pickerCard.style.display = 'none';
+  loadingCard.style.display = 'flex';
+  loadingSub.textContent = 'Reading file…';
+  progressFill.style.width = '80%';
+  setStatus('loading', 'Loading model…');
+  try {
+    const buf = await file.arrayBuffer();
+    loadingSub.textContent = 'Initializing session…';
+    progressFill.style.width = '95%';
+    await loadModelFromBuffer(buf);
+    await cacheModel(buf);
+    cacheStatus.textContent = 'IndexedDB ✓';
+    progressFill.style.width = '100%';
+    loadingOverlay.style.display = 'none';
+    setStatus('ready', 'Model Ready');
+    startDetection();
+  } catch(e) {
+    loadingSub.textContent = 'Error: ' + e.message;
+    setStatus('error', 'Load failed');
+  }
+});
+
+// Auto-download button
+btnAutoDownload.addEventListener('click', async () => {
+  btnAutoDownload.disabled = true;
+  btnAutoDownload.textContent = 'Downloading…';
+  dlStatus.style.display = 'block';
+  dlBar.style.display = 'block';
+  dlStatus.textContent = 'Connecting…';
+
+  try {
+    const buf = await downloadModelWithProgress((loaded, total) => {
+      const mb = (loaded / 1048576).toFixed(1);
+      const totMb = total ? `/ ${(total / 1048576).toFixed(1)} MB` : 'MB';
+      dlStatus.textContent = `Downloading… ${mb} ${totMb}`;
+      if (total) dlFill.style.width = Math.round(loaded / total * 100) + '%';
+    });
+
+    dlStatus.textContent = 'Initializing model…';
+    pickerCard.style.display = 'none';
+    loadingCard.style.display = 'flex';
+    loadingSub.textContent = 'Initializing session…';
+    progressFill.style.width = '90%';
+    setStatus('loading', 'Loading model…');
+
+    await loadModelFromBuffer(buf);
+    await cacheModel(buf);
+    cacheStatus.textContent = 'IndexedDB ✓';
+    progressFill.style.width = '100%';
+    loadingOverlay.style.display = 'none';
+    setStatus('ready', 'Model Ready');
+    startDetection();
+  } catch(e) {
+    dlStatus.textContent = '⚠ Download failed — try "Load from disk" instead.';
+    btnAutoDownload.disabled = false;
+    btnAutoDownload.textContent = '⬇ Download model (10 MB)';
+  }
+});
+
+// ─── Camera ────────────────────────────────────────────────────────────────
+async function startCamera(deviceId) {
+  if (stream) stream.getTracks().forEach(t => t.stop());
+  const constraints = {
+    video: deviceId
+      ? { deviceId: { exact: deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
+      : { width: { ideal: 1280 }, height: { ideal: 720 } },
+  };
+  stream = await navigator.mediaDevices.getUserMedia(constraints);
+  video.srcObject = stream;
+  await video.play();
+}
+
+async function enumCameras() {
+  try {
+    // Trigger permission first so re-enumerate returns real IDs and labels
+    try {
+      const tmp = await navigator.mediaDevices.getUserMedia({ video: true });
+      tmp.getTracks().forEach(t => t.stop());
+    } catch(_) {}
+    const devs = await navigator.mediaDevices.enumerateDevices();
+    const cams  = devs.filter(d => d.kind === 'videoinput');
+    camSelect.innerHTML = '';
+    if (!cams.length) {
+      camSelect.innerHTML = '<option>No cameras found</option>';
+      return;
+    }
+    for (const [i, c] of cams.entries()) {
+      const opt = document.createElement('option');
+      opt.value = c.deviceId;
+      opt.textContent = c.label || `Camera ${i + 1}`;
+      camSelect.appendChild(opt);
+    }
+    await startCamera(cams[0].deviceId);
+  } catch(e) {
+    camSelect.innerHTML = '<option>Camera error</option>';
+    console.error('Camera error:', e);
+  }
+}
+
+camSelect.addEventListener('change', () => startCamera(camSelect.value));
+
+// ─── Preprocessing ─────────────────────────────────────────────────────────
+function preprocess() {
+  const ctx = offscreen.getContext('2d');
+  const vw  = video.videoWidth, vh = video.videoHeight;
+  const scale = Math.min(INPUT_SIZE / vw, INPUT_SIZE / vh);
+  const sw = Math.round(vw * scale), sh = Math.round(vh * scale);
+  const px = Math.floor((INPUT_SIZE - sw) / 2);
+  const py = Math.floor((INPUT_SIZE - sh) / 2);
+  offscreen.width = INPUT_SIZE; offscreen.height = INPUT_SIZE;
+  ctx.fillStyle = '#888';
+  ctx.fillRect(0, 0, INPUT_SIZE, INPUT_SIZE);
+  ctx.drawImage(video, px, py, sw, sh);
+  const img   = ctx.getImageData(0, 0, INPUT_SIZE, INPUT_SIZE).data;
+  const area  = INPUT_SIZE * INPUT_SIZE;
+  const f32   = new Float32Array(3 * area);
+  for (let i = 0; i < area; i++) {
+    f32[i]          = img[i*4]   / 255;
+    f32[i + area]   = img[i*4+1] / 255;
+    f32[i + area*2] = img[i*4+2] / 255;
+  }
+  return { tensor: new ort.Tensor('float32', f32, [1, 3, INPUT_SIZE, INPUT_SIZE]), scale, px, py };
+}
+
+// ─── NMS ───────────────────────────────────────────────────────────────────
+function iou(a, b) {
+  const x1 = Math.max(a.x1,b.x1), y1 = Math.max(a.y1,b.y1);
+  const x2 = Math.min(a.x2,b.x2), y2 = Math.min(a.y2,b.y2);
+  const inter = Math.max(0, x2-x1) * Math.max(0, y2-y1);
+  return inter / ((a.x2-a.x1)*(a.y2-a.y1) + (b.x2-b.x1)*(b.y2-b.y1) - inter + 1e-6);
+}
+function nms(dets, thr) {
+  dets.sort((a,b) => b.conf - a.conf);
+  const used = new Uint8Array(dets.length), out = [];
+  for (let i = 0; i < dets.length; i++) {
+    if (used[i]) continue;
+    out.push(dets[i]);
+    for (let j = i+1; j < dets.length; j++)
+      if (!used[j] && iou(dets[i], dets[j]) > thr) used[j] = 1;
+  }
+  return out;
+}
+
+// ─── DFL decode ────────────────────────────────────────────────────────────
+// This model has 6 raw output tensors (reg1/cls1, reg2/cls2, reg3/cls3).
+// reg_k: [1, 64, H, W]  16 DFL bins × 4 coords (l,t,r,b) per anchor
+// cls_k: [1, 80, H, W]  80 class logits per anchor
+function decode(out, scale, px, py) {
+  const HEADS = [
+    { stride:  8, H: 80, W: 80, reg: 'reg1', cls: 'cls1' },
+    { stride: 16, H: 40, W: 40, reg: 'reg2', cls: 'cls2' },
+    { stride: 32, H: 20, W: 20, reg: 'reg3', cls: 'cls3' },
+  ];
+  const NC = 80;
+  const all = [];
+
+  for (const { stride, H, W, reg, cls } of HEADS) {
+    const rd = out[reg].data;
+    const cd = out[cls].data;
+    const HW = H * W;
+
+    for (let i = 0; i < H; i++) {
+      for (let j = 0; j < W; j++) {
+        const idx = i * W + j;
+
+        // Max class logit → sigmoid confidence
+        let maxL = -Infinity, clsId = 0;
+        for (let c = 0; c < NC; c++) {
+          const l = cd[c * HW + idx];
+          if (l > maxL) { maxL = l; clsId = c; }
+        }
+        const conf = 1 / (1 + Math.exp(-maxL));
+        if (conf < CONF_THR) continue;
+
+        // DFL: softmax over 16 bins → expected distance (grid units)
+        const ltrb = [];
+        for (let k = 0; k < 4; k++) {
+          let mv = -Infinity;
+          for (let b = 0; b < 16; b++) { const v = rd[(k*16+b)*HW+idx]; if (v>mv) mv=v; }
+          let se = 0, d = 0;
+          for (let b = 0; b < 16; b++) { const e = Math.exp(rd[(k*16+b)*HW+idx] - mv); se+=e; d+=b*e; }
+          ltrb.push(d / se);
+        }
+
+        const [l,t,r,b] = ltrb;
+        // Model pixel space → video pixel space
+        const x1m = ((j+0.5) - l) * stride,  y1m = ((i+0.5) - t) * stride;
+        const x2m = ((j+0.5) + r) * stride,  y2m = ((i+0.5) + b) * stride;
+        all.push({
+          x1:(x1m-px)/scale, y1:(y1m-py)/scale,
+          x2:(x2m-px)/scale, y2:(y2m-py)/scale,
+          conf, cls: clsId, label: COCO_CLASSES[clsId] ?? 'unknown',
+        });
+      }
+    }
+  }
+  return nms(all, IOU_THR);
+}
+
+// ─── Draw ──────────────────────────────────────────────────────────────────
+function draw(dets) {
+  const dw = overlay.offsetWidth, dh = overlay.offsetHeight;
+  const vw = video.videoWidth,    vh = video.videoHeight;
+  if (!dw || !dh || !vw || !vh) return;
+  overlay.width = dw; overlay.height = dh;
+  const ctx = overlay.getContext('2d');
+  ctx.clearRect(0, 0, dw, dh);
+
+  // Account for object-fit: contain letterboxing
+  const videoAR = vw / vh, containerAR = dw / dh;
+  let sx, sy, ox, oy;
+  if (containerAR > videoAR) {
+    sy = dh / vh; sx = sy; ox = (dw - vw * sx) / 2; oy = 0;
+  } else {
+    sx = dw / vw; sy = sx; ox = 0; oy = (dh - vh * sy) / 2;
+  }
+
+  for (const d of dets) {
+    const x = ox + d.x1*sx, y = oy + d.y1*sy;
+    const w = (d.x2-d.x1)*sx,  h = (d.y2-d.y1)*sy;
+    const col = classColor(d.cls);
+    ctx.strokeStyle = col; ctx.lineWidth = 2.5;
+    ctx.strokeRect(x, y, w, h);
+    const label = `${d.label} ${Math.round(d.conf*100)}%`;
+    ctx.font = 'bold 13px "Noto Sans",sans-serif';
+    const tw = ctx.measureText(label).width;
+    // Clamp label so it never overflows top, left, or right edges
+    const ly = y < 24 ? y + 22 : y;
+    const lx = Math.max(0, Math.min(x - 1, dw - tw - 12));
+    const hue = (d.cls * 137.508) % 360;
+    ctx.fillStyle = `hsla(${hue},80%,48%,0.85)`;
+    ctx.fillRect(lx, ly-22, tw+10, 22);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(label, lx+4, ly-5);
+  }
+}
+
+// ─── Sidebar update ────────────────────────────────────────────────────────
+function updateSidebar(dets) {
+  detCount.textContent = dets.length;
+  detSummary.textContent = `${dets.length} object${dets.length !== 1 ? 's' : ''} detected`;
+  if (!dets.length) {
+    detList.innerHTML = '<div class="empty">Nothing detected</div>';
+    return;
+  }
+  detList.innerHTML = dets.map(d => {
+    const col = classColor(d.cls);
+    const pct = Math.round(d.conf * 100);
+    return `<div class="det-item">
+      <div class="det-color" style="background:${col}"></div>
+      <div class="det-info">
+        <span class="det-label">${d.label}</span>
+        <span class="det-conf">${pct}%</span>
+      </div>
+      <div class="conf-wrap"><div class="conf-bar" style="width:${pct}%;background:${col}"></div></div>
+    </div>`;
+  }).join('');
+}
+
+// ─── Detection loop ────────────────────────────────────────────────────────
+async function detect() {
+  if (!running) return;
+  if (session && video.readyState >= 2 && video.videoWidth > 0) {
+    try {
+      const { tensor, scale, px, py } = preprocess();
+      const feeds = { [session.inputNames[0]]: tensor };
+      const out   = await session.run(feeds);
+      const dets  = decode(out, scale, px, py);
+      draw(dets);
+      updateSidebar(dets);
+
+      fpsFrames++;
+      const now = performance.now();
+      if (now - fpsLast >= 1000) {
+        fpsBadge.textContent = fpsFrames + ' FPS';
+        fpsFrames = 0; fpsLast = now;
+      }
+    } catch(e) { console.error('Inference error', e); }
+  }
+  rafId = requestAnimationFrame(detect);
+}
+
+function startDetection() {
+  running = true;
+  rafId = requestAnimationFrame(detect);
+  detList.innerHTML = '<div class="empty">Nothing detected</div>';
+}
+
+// ─── Boot ──────────────────────────────────────────────────────────────────
+(async function boot() {
+  // Start camera independently of model loading
+  try {
+    await enumCameras();
+  } catch(e) { console.warn('Camera init failed', e); }
+
+  // Load model
+  await initModel();
+})();
+</script>
+</body>
+</html>
